@@ -60,8 +60,7 @@ public class GameManager : MonoBehaviour
     private void Start()
     {
         // Load meta-progress dari save
-        SaveSystem.Load();
-        ChangeState(GameState.MainMenu);
+        SaveSystem.Load(() => ChangeState(GameState.MainMenu));
     }
 
     // ─── State Transition ─────────────────────────────────────────────────────
@@ -160,6 +159,7 @@ public class GameManager : MonoBehaviour
         RunManager.OnRunFailed();
         SaveSystem.Save();
         UIManager.ShowGameOverScreen();
+        AdManager.ShowInterstitial("game_over");
     }
 
     private void HandleVictory()
@@ -167,6 +167,7 @@ public class GameManager : MonoBehaviour
         RunManager.OnRunCompleted();
         SaveSystem.Save();
         UIManager.ShowVictoryScreen();
+        AdManager.ShowInterstitial("victory");
     }
 
     // ─── Utility ──────────────────────────────────────────────────────────────

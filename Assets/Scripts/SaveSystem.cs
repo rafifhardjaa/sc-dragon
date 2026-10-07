@@ -1,70 +1,68 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+#if UNITY_WEBGL && !UNITY_EDITOR
+using Playgama;
+#endif
 
-/// <summary>
-/// SaveSystem — Menyimpan dan memuat meta-progression Heroll.
-///
-/// Yang disimpan (persists antar run):
-///   • Total Sisik Naga meta (beda dari sisik in-run)
-///   • Daftar konten yang sudah di-unlock
-///   • Total run yang pernah dimainkan
-///   • High score (tile tertinggi yang pernah dicapai)
-///
-/// Format: JSON file di Application.persistentDataPath.
-/// </summary>
 public class SaveSystem : MonoBehaviour
 {
-    // ─── Path ─────────────────────────────────────────────────────────────────
+    private const string Key = "heroll_save";
     private string SavePath => Path.Combine(Application.persistentDataPath, "heroll_save.json");
-
-    // ─── In-Memory State ──────────────────────────────────────────────────────
     private SaveData data = new();
 
-    // ─── Public Accessors ─────────────────────────────────────────────────────
     public int MetaScales => data.metaScales;
     public int TotalRuns => data.totalRuns;
     public int HighestTileEver => data.highestTileEver;
 
-    // ─── Load ─────────────────────────────────────────────────────────────────
-    public void Load()
+    public void Load(Action onDone = null)
     {
-        if (!File.Exists(SavePath))
+#if UNITY_WEBGL && !UNITY_EDITOR
+        Bridge.storage.Get(Key, (success, json) =>
+        {
+            Apply(success ? json : null);
+            onDone?.Invoke();
+        });
+#else
+        Apply(File.Exists(SavePath) ? File.ReadAllText(SavePath) : null);
+        onDone?.Invoke();
+#endif
+    }
+
+    private void Apply(string json)
+    {
+        if (string.IsNullOrEmpty(json))
         {
             data = new SaveData();
-            Debug.Log("[SaveSystem] Tidak ada save file. Data baru dibuat.");
+            Debug.Log("[SaveSystem] Tidak ada save. Data baru dibuat.");
             return;
         }
-
         try
         {
-            string json = File.ReadAllText(SavePath);
             data = JsonUtility.FromJson<SaveData>(json);
-            Debug.Log($"[SaveSystem] Save dimuat. Meta sisik: {data.metaScales}, Total run: {data.totalRuns}");
-
-            // Kirim data unlock ke RunManager
             GameManager.Instance.RunManager.LoadUnlocks(data.unlockedIDs);
         }
         catch (Exception e)
         {
-            Debug.LogError($"[SaveSystem] Gagal load save: {e.Message}. Reset ke default.");
+            Debug.LogError($"[SaveSystem] Gagal load: {e.Message}. Reset ke default.");
             data = new SaveData();
         }
     }
 
-    // ─── Save ─────────────────────────────────────────────────────────────────
     public void Save()
     {
         try
         {
-            // Ambil data unlock terkini dari RunManager sebelum simpan
             data.unlockedIDs = GameManager.Instance.RunManager.GetUnlocksForSave();
             data.totalRuns = GameManager.Instance.RunManager.CurrentRunNumber;
-
-            string json = JsonUtility.ToJson(data, prettyPrint: true);
+            string json = JsonUtility.ToJson(data);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            Bridge.storage.Set(Key, json, success =>
+                Debug.Log($"[SaveSystem] Simpan ke Bridge: {success}"));
+#else
             File.WriteAllText(SavePath, json);
-            Debug.Log($"[SaveSystem] Game tersimpan. Meta sisik: {data.metaScales}");
+#endif
         }
         catch (Exception e)
         {
@@ -72,11 +70,7 @@ public class SaveSystem : MonoBehaviour
         }
     }
 
-    // ─── Mutation Methods ─────────────────────────────────────────────────────
-    public void AddMetaScales(int amount)
-    {
-        data.metaScales = Mathf.Max(0, data.metaScales + amount);
-    }
+    public void AddMetaScales(int amount) => data.metaScales = Mathf.Max(0, data.metaScales + amount);
 
     public bool SpendMetaScales(int amount)
     {
@@ -87,22 +81,20 @@ public class SaveSystem : MonoBehaviour
 
     public void UpdateHighestTile(int tile)
     {
-        if (tile > data.highestTileEver)
-            data.highestTileEver = tile;
+        if (tile > data.highestTileEver) data.highestTileEver = tile;
     }
 
-    // ─── Delete Save ──────────────────────────────────────────────────────────
     public void DeleteSave()
     {
-        if (File.Exists(SavePath))
-            File.Delete(SavePath);
-
+#if UNITY_WEBGL && !UNITY_EDITOR
+        Bridge.storage.Delete(Key, _ => { });
+#else
+        if (File.Exists(SavePath)) File.Delete(SavePath);
+#endif
         data = new SaveData();
-        Debug.Log("[SaveSystem] Save file dihapus.");
     }
 }
 
-// ─── Save Data Model ──────────────────────────────────────────────────────────
 [Serializable]
 public class SaveData
 {
